@@ -1,16 +1,46 @@
 
 
 
-{
+quickmart-careers/
+├── .env.example
+PORT=3000
+NODE_ENV=development
+
+# PostgreSQL
+DATABASE_URL=postgres://postgres:password@localhost:5432/quickmart_careers
+SESSION_SECRET=replace_with_long_random_string
+
+# M-Pesa Daraja (https://developer.safaricom.co.ke)
+MPESA_ENV=sandbox
+MPESA_CONSUMER_KEY=your_consumer_key
+MPESA_CONSUMER_SECRET=your_consumer_secret
+MPESA_SHORTCODE=174379
+MPESA_PASSKEY=bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
+MPESA_CALLBACK_URL=https://your-ngrok-url.ngrok.io/api/payments/mpesa/callback
+
+# Email
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your_user
+SMTP_PASS=your_pass
+MAIL_FROM="QuickMart Careers <careers@yourdomain.com>"
+├── .gitignore
+  node_modules/
+.env
+public/uploads/*
+!public/uploads/.gitkeep
+*.log
+├── package.json{
   "name": "quickmart-careers",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "db:init": "psql -U postgres -f db/schema.sql"
+    "seed": "node scripts/seed.js"
   },
   "dependencies": {
+    "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^9.0.1",
     "cookie-parser": "^1.4.6",
@@ -28,138 +58,9 @@
     "nodemon": "^3.1.4"
   }
 }
-PORT=3000
-NODE_ENV=development
 
-# PostgreSQL
-DATABASE_URL=postgres://postgres:password@localhost:5432/quickmart_careers
-SESSION_SECRET=change_me_to_a_long_random_string
-
-# M-Pesa Daraja (get from https://developer.safaricom.co.ke)
-MPESA_ENV=sandbox
-MPESA_CONSUMER_KEY=your_key
-MPESA_CONSUMER_SECRET=your_secret
-MPESA_SHORTCODE=174379
-MPESA_PASSKEY=bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919
-MPESA_CALLBACK_URL=https://your-ngrok-url.ngrok.io/api/payments/mpesa/callback
-
-# Email
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=your_user
-SMTP_PASS=your_pass
-MAIL_FROM="QuickMart Careers <careers@yourdomain.com>"
-
--- Run: psql -U postgres -d quickmart_careers -f db/schema.sql
-
-CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
-  full_name VARCHAR(150) NOT NULL,
-  email VARCHAR(150) UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  phone VARCHAR(20),
-  county VARCHAR(80),
-  role VARCHAR(20) NOT NULL DEFAULT 'applicant' CHECK (role IN ('applicant','admin')),
-  email_verified BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS jobs (
-  id SERIAL PRIMARY KEY,
-  title VARCHAR(150) NOT NULL,
-  department VARCHAR(100) NOT NULL,
-  location VARCHAR(100) NOT NULL,
-  employment_type VARCHAR(50) NOT NULL,
-  salary_range VARCHAR(80),
-  description TEXT NOT NULL,
-  qualifications TEXT,
-  experience_required VARCHAR(100),
-  vacancies INT DEFAULT 1,
-  deadline DATE,
-  status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open','closed','draft')),
-  is_sample BOOLEAN DEFAULT TRUE,
-  created_by INT REFERENCES users(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_department ON jobs(department);
-
-CREATE TABLE IF NOT EXISTS applications (
-  id SERIAL PRIMARY KEY,
-  reference VARCHAR(20) UNIQUE NOT NULL,
-  user_id INT REFERENCES users(id) ON DELETE CASCADE,
-  job_id INT REFERENCES jobs(id) ON DELETE CASCADE,
-  education_level VARCHAR(80),
-  work_experience TEXT,
-  status VARCHAR(30) DEFAULT 'submitted'
-    CHECK (status IN ('submitted','under_review','shortlisted','interview_scheduled','successful','unsuccessful')),
-  consent BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_apps_user ON applications(user_id);
-CREATE INDEX idx_apps_job ON applications(job_id);
-
-CREATE TABLE IF NOT EXISTS documents (
-  id SERIAL PRIMARY KEY,
-  application_id INT REFERENCES applications(id) ON DELETE CASCADE,
-  type VARCHAR(30) NOT NULL CHECK (type IN ('cv','certificate')),
-  original_name TEXT NOT NULL,
-  stored_path TEXT NOT NULL,
-  mime_type VARCHAR(100),
-  uploaded_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS transactions (
-  id SERIAL PRIMARY KEY,
-  reference VARCHAR(50) UNIQUE NOT NULL,
-  user_id INT REFERENCES users(id) ON DELETE SET NULL,
-  amount NUMERIC(10,2) NOT NULL,
-  currency VARCHAR(5) DEFAULT 'KES',
-  method VARCHAR(20) NOT NULL CHECK (method IN ('mpesa','paystack','flutterwave')),
-  phone VARCHAR(20),
-  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','success','failed')),
-  provider_ref VARCHAR(100),
-  raw_callback JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX idx_tx_user ON transactions(user_id);
-CREATE INDEX idx_tx_status ON transactions(status);
-
-CREATE TABLE IF NOT EXISTS notifications (
-  id SERIAL PRIMARY KEY,
-  user_id INT REFERENCES users(id) ON DELETE CASCADE,
-  subject VARCHAR(200),
-  body TEXT,
-  sent_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id SERIAL PRIMARY KEY,
-  actor_id INT REFERENCES users(id) ON DELETE SET NULL,
-  action VARCHAR(100),
-  target TEXT,
-  meta JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Sample admin (password: Admin@1234 — CHANGE IMMEDIATELY after first login)
-INSERT INTO users (full_name, email, password_hash, role, email_verified)
-VALUES (
-  'System Administrator',
-  'admin@quickmart.local',
-  '$2a$10$Q7Xf0M9w2zP7QxJ5r6yHnO0T5X3Yb8a2d1c9e4f6g7h8i9j0kLmN', -- replace by running scripts/seed.js
-  'admin', TRUE
-) ON CONFLICT (email) DO NOTHING;
-const { Pool } = require('pg');
-require('dotenv').config();
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-module.exports = { pool };
-require('dotenv').config();
+├── server.js
+  require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
@@ -171,32 +72,31 @@ const { pool } = require('./config/db');
 
 const app = express();
 
-app.use(helmet({ contentSecurityPolicy: false })); // adjust CSP per your asset origins
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-app.use(session({
-  store: new pgSession({ pool, tableName: 'session' }),
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 1000 * 60 * 60 * 24, // 1 day
-  },
-}));
+app.use(
+  session({
+    store: new pgSession({ pool, tableName: 'session' }),
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 24,
+    },
+  })
+);
 
-// Rate limit auth endpoints
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, max: 50 }));
 
-// Static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
-// Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/applications', require('./routes/applications'));
@@ -207,7 +107,18 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ QuickMart Careers running on :${PORT}`));
-function requireAuth(req, res, next) {
+├── config/db.js
+  const { Pool } = require('pg');
+require('dotenv').config();
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
+
+module.exports = { pool };
+├── middleware/auth.js
+  function requireAuth(req, res, next) {
   if (!req.session.user) return res.status(401).json({ error: 'Authentication required' });
   next();
 }
@@ -219,7 +130,8 @@ function requireAdmin(req, res, next) {
 }
 
 module.exports = { requireAuth, requireAdmin };
-const multer = require('multer');
+├── middleware/upload.js
+  const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
@@ -234,13 +146,15 @@ const storage = multer.diskStorage({
   },
 });
 
-const ALLOWED = new Set(['application/pdf',
+const ALLOWED = new Set([
+  'application/pdf',
   'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_, file, cb) => {
     if (!ALLOWED.has(file.mimetype)) return cb(new Error('Only PDF/DOC/DOCX allowed'));
     cb(null, true);
@@ -248,13 +162,15 @@ const upload = multer({
 });
 
 module.exports = { upload };
-const express = require('express');
+├── routes/auth.js
+  const express = require('express');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const router = express.Router();
 
-router.post('/register',
+router.post(
+  '/register',
   body('email').isEmail(),
   body('password').isLength({ min: 8 }),
   body('fullName').notEmpty(),
@@ -274,6 +190,7 @@ router.post('/register',
       res.json({ user: rows[0] });
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Email already registered' });
+      console.error(e);
       res.status(500).json({ error: 'Registration failed' });
     }
   }
@@ -287,7 +204,9 @@ router.post('/login', async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-  req.session.user = { id: user.id, role: user.role, email: user.email, full_name: user.full_name };
+  req.session.user = {
+    id: user.id, role: user.role, email: user.email, full_name: user.full_name,
+  };
   res.json({ user: req.session.user });
 });
 
@@ -301,12 +220,12 @@ router.get('/me', (req, res) => {
 });
 
 module.exports = router;
-const express = require('express');
+├── routes/jobs.js
+  const express = require('express');
 const { pool } = require('../config/db');
 const { requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 
-// Public list (with filters + pagination)
 router.get('/', async (req, res) => {
   const { search = '', department = '', location = '', page = 1, limit = 9 } = req.query;
   const offset = (Number(page) - 1) * Number(limit);
@@ -319,7 +238,8 @@ router.get('/', async (req, res) => {
 
   const whereSQL = `WHERE ${where.join(' AND ')}`;
   const list = await pool.query(
-    `SELECT * FROM jobs ${whereSQL} ORDER BY created_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`,
+    `SELECT * FROM jobs ${whereSQL} ORDER BY created_at DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
   const count = await pool.query(`SELECT COUNT(*) FROM jobs ${whereSQL}`, params);
@@ -338,12 +258,12 @@ router.get('/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
-// Admin only
 router.post('/', requireAdmin, async (req, res) => {
   const b = req.body;
   const { rows } = await pool.query(
-    `INSERT INTO jobs (title,department,location,employment_type,salary_range,description,
-       qualifications,experience_required,vacancies,deadline,status,is_sample,created_by)
+    `INSERT INTO jobs (title,department,location,employment_type,salary_range,
+       description,qualifications,experience_required,vacancies,deadline,
+       status,is_sample,created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [b.title, b.department, b.location, b.employment_type, b.salary_range,
      b.description, b.qualifications, b.experience_required,
@@ -354,21 +274,26 @@ router.post('/', requireAdmin, async (req, res) => {
 });
 
 module.exports = router;
-const express = require('express');
+├── routes/applications.js
+  const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
+const { sendMail } = require('../services/mailer');
 const router = express.Router();
 
-router.post('/',
+router.post(
+  '/',
   requireAuth,
   upload.fields([{ name: 'cv', maxCount: 1 }, { name: 'certificate', maxCount: 3 }]),
   async (req, res) => {
     const b = req.body;
-    if (!b.consent || b.consent === 'false') return res.status(400).json({ error: 'Consent required' });
+    if (!b.consent || b.consent === 'false')
+      return res.status(400).json({ error: 'Consent required' });
     if (!req.files?.cv) return res.status(400).json({ error: 'CV required' });
 
-    const ref = `QM-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
+    const ref = `QM-${Date.now().toString(36).toUpperCase()}-${Math.random()
+      .toString(36).slice(2, 5).toUpperCase()}`;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -382,6 +307,7 @@ router.post('/',
       const docs = [];
       for (const f of req.files.cv) docs.push({ f, type: 'cv' });
       for (const f of (req.files.certificate || [])) docs.push({ f, type: 'certificate' });
+
       for (const d of docs) {
         await client.query(
           `INSERT INTO documents (application_id,type,original_name,stored_path,mime_type)
@@ -391,6 +317,15 @@ router.post('/',
       }
 
       await client.query('COMMIT');
+
+      if (req.session.user.email) {
+        sendMail({
+          to: req.session.user.email,
+          subject: `QuickMart application received — ${ref}`,
+          html: `<p>Hi,</p><p>We received your application. Reference: <b>${ref}</b>.</p>`,
+        });
+      }
+
       res.json({ reference: rows[0].reference });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -413,54 +348,13 @@ router.get('/my', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-const axios = require('axios'); // npm i axios
-require('dotenv').config();
-
-const BASE = process.env.MPESA_ENV === 'production'
-  ? 'https://api.safaricom.co.ke'
-  : 'https://sandbox.safaricom.co.ke';
-
-async function getToken() {
-  const auth = Buffer.from(
-    `${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`
-  ).toString('base64');
-  const { data } = await axios.get(`${BASE}/oauth/v1/generate?grant_type=client_credentials`,
-    { headers: { Authorization: `Basic ${auth}` } });
-  return data.access_token;
-}
-
-async function stkPush({ phone, amount, accountRef, description }) {
-  const token = await getToken();
-  const ts = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-  const password = Buffer.from(
-    `${process.env.MPESA_SHORTCODE}${process.env.MPESA_PASSKEY}${ts}`
-  ).toString('base64');
-
-  const { data } = await axios.post(`${BASE}/mpesa/stkpush/v1/processrequest`, {
-    BusinessShortCode: process.env.MPESA_SHORTCODE,
-    Password: password,
-    Timestamp: ts,
-    TransactionType: 'CustomerPayBillOnline',
-    Amount: amount,
-    PartyA: phone,
-    PartyB: process.env.MPESA_SHORTCODE,
-    PhoneNumber: phone,
-    CallBackURL: process.env.MPESA_CALLBACK_URL,
-    AccountReference: accountRef,
-    TransactionDesc: description,
-  }, { headers: { Authorization: `Bearer ${token}` } });
-
-  return data; // { MerchantRequestID, CheckoutRequestID, ResponseCode, ... }
-}
-
-module.exports = { stkPush };
-const express = require('express');
+├── routes/payments.js
+  const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth } = require('../middleware/auth');
 const { stkPush } = require('../services/mpesa');
 const router = express.Router();
 
-// Initiate STK Push
 router.post('/mpesa/stk', requireAuth, async (req, res) => {
   const { phone, amount, accountRef = 'QuickMart-Careers' } = req.body;
   if (!phone || !amount) return res.status(400).json({ error: 'phone and amount required' });
@@ -474,12 +368,9 @@ router.post('/mpesa/stk', requireAuth, async (req, res) => {
 
   try {
     const resp = await stkPush({
-      phone,
-      amount,
-      accountRef,
+      phone, amount, accountRef,
       description: 'QuickMart Careers',
     });
-    // Store CheckoutRequestID to correlate callback
     await pool.query(
       `UPDATE transactions SET provider_ref=$1 WHERE reference=$2`,
       [resp.CheckoutRequestID, ref]
@@ -491,7 +382,6 @@ router.post('/mpesa/stk', requireAuth, async (req, res) => {
   }
 });
 
-// Daraja callback — MUST be verified server-side
 router.post('/mpesa/callback', async (req, res) => {
   try {
     const cb = req.body?.Body?.stkCallback;
@@ -505,12 +395,11 @@ router.post('/mpesa/callback', async (req, res) => {
 
     const { rowCount } = await pool.query(
       `UPDATE transactions
-       SET status=$1, raw_callback=$2,
-           provider_ref=COALESCE(provider_ref,$3)
+       SET status=$1, raw_callback=$2, provider_ref=COALESCE(provider_ref,$3)
        WHERE provider_ref=$3 AND status='pending'`,
       [result, cb, CheckoutRequestID]
     );
-    // Never trust client-side amount — always read from provider metadata
+
     if (rowCount && result === 'success') {
       console.log('✅ Verified M-Pesa payment', meta.MpesaReceiptNumber, meta.Amount);
     }
@@ -530,7 +419,8 @@ router.get('/my', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
-const express = require('express');
+├── routes/admin.js
+  const express = require('express');
 const { pool } = require('../config/db');
 const { requireAdmin } = require('../middleware/auth');
 const router = express.Router();
@@ -588,49 +478,448 @@ router.get('/transactions', async (_, res) => {
 });
 
 module.exports = router;
+├── services/mpesa.js
+  const axios = require('axios');
+require('dotenv').config();
+
+const BASE = process.env.MPESA_ENV === 'production'
+  ? 'https://api.safaricom.co.ke'
+  : 'https://sandbox.safaricom.co.ke';
+
+async function getToken() {
+  const auth = Buffer.from(
+    `${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`
+  ).toString('base64');
+  const { data } = await axios.get(
+    `${BASE}/oauth/v1/generate?grant_type=client_credentials`,
+    { headers: { Authorization: `Basic ${auth}` } }
+  );
+  return data.access_token;
+}
+
+async function stkPush({ phone, amount, accountRef, description }) {
+  const token = await getToken();
+  const ts = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+  const password = Buffer.from(
+    `${process.env.MPESA_SHORTCODE}${process.env.MPESA_PASSKEY}${ts}`
+  ).toString('base64');
+
+  const { data } = await axios.post(
+    `${BASE}/mpesa/stkpush/v1/processrequest`,
+    {
+      BusinessShortCode: process.env.MPESA_SHORTCODE,
+      Password: password,
+      Timestamp: ts,
+      TransactionType: 'CustomerPayBillOnline',
+      Amount: amount,
+      PartyA: phone,
+      PartyB: process.env.MPESA_SHORTCODE,
+      PhoneNumber: phone,
+      CallBackURL: process.env.MPESA_CALLBACK_URL,
+      AccountReference: accountRef,
+      TransactionDesc: description,
+    },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+module.exports = { stkPush };
+├── services/mailer.js
+  const nodemailer = require('nodemailer');
+require('dotenv').config();
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: Number(process.env.SMTP_PORT) === 465,
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+});
+
+async function sendMail({ to, subject, html, text }) {
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_FROM,
+      to, subject, html, text,
+    });
+  } catch (e) {
+    console.error('Mail error:', e.message);
+  }
+}
+
+module.exports = { sendMail };
+├── scripts/seed.js
+  require('dotenv').config();
+const bcrypt = require('bcryptjs');
+const { pool } = require('../config/db');
+
+(async () => {
+  const hash = await bcrypt.hash('Admin@1234', 12);
+  await pool.query(
+    `INSERT INTO users (full_name,email,password_hash,role,email_verified)
+     VALUES ($1,$2,$3,'admin',TRUE)
+     ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash`,
+    ['System Administrator', 'admin@quickmart.local', hash]
+  );
+
+  await pool.query(
+    `INSERT INTO jobs (title,department,location,employment_type,salary_range,
+       description,qualifications,experience_required,vacancies,status,is_sample)
+     VALUES
+       ('Cashier','Retail','Nairobi','Full-time','KES 30,000 – 40,000',
+        'Process customer transactions, handle cash, and deliver excellent service.',
+        'KCSE C+ and above','1–2 years',5,'open',true),
+       ('Store Supervisor','Operations','Mombasa','Full-time','KES 55,000 – 70,000',
+        'Oversee daily store operations and lead a team of attendants.',
+        'Diploma in Business','3+ years',2,'open',true),
+       ('Warehouse Assistant','Logistics','Kisumu','Full-time','KES 25,000 – 32,000',
+        'Manage stock movement, receiving, and dispatch.',
+        'KCSE D+','Entry level',8,'open',true),
+       ('Customer Service Rep','Customer Care','Nairobi','Part-time','KES 20,000 – 28,000',
+        'Handle customer inquiries and feedback across channels.',
+        'KCSE C','0–1 year',4,'open',true),
+       ('Accountant','Finance','Nairobi','Full-time','KES 70,000 – 95,000',
+        'Prepare financial statements, reconcile accounts, and support audits.',
+        'Bachelor of Commerce (Accounting)','3+ years',1,'open',true),
+       ('Driver','Logistics','Mombasa','Full-time','KES 28,000 – 35,000',
+        'Deliver goods safely with valid driving license.',
+        'KCSE D+ / Class BCE','2+ years',3,'open',true)
+     ON CONFLICT DO NOTHING`
+  );
+
+  console.log('✅ Seeded admin (admin@quickmart.local / Admin@1234) + sample jobs');
+  await pool.end();
+})();
+├── db/schema.sql
+  CREATE TABLE IF NOT EXISTS "session" (
+  "sid" varchar NOT NULL COLLATE "default",
+  "sess" json NOT NULL,
+  "expire" timestamp(6) NOT NULL,
+  CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+);
+CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  full_name VARCHAR(150) NOT NULL,
+  email VARCHAR(150) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  phone VARCHAR(20),
+  county VARCHAR(80),
+  role VARCHAR(20) NOT NULL DEFAULT 'applicant'
+    CHECK (role IN ('applicant','admin')),
+  email_verified BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(150) NOT NULL,
+  department VARCHAR(100) NOT NULL,
+  location VARCHAR(100) NOT NULL,
+  employment_type VARCHAR(50) NOT NULL,
+  salary_range VARCHAR(80),
+  description TEXT NOT NULL,
+  qualifications TEXT,
+  experience_required VARCHAR(100),
+  vacancies INT DEFAULT 1,
+  deadline DATE,
+  status VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open','closed','draft')),
+  is_sample BOOLEAN DEFAULT TRUE,
+  created_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_department ON jobs(department);
+
+CREATE TABLE IF NOT EXISTS applications (
+  id SERIAL PRIMARY KEY,
+  reference VARCHAR(30) UNIQUE NOT NULL,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  job_id INT REFERENCES jobs(id) ON DELETE CASCADE,
+  education_level VARCHAR(80),
+  work_experience TEXT,
+  status VARCHAR(30) DEFAULT 'submitted'
+    CHECK (status IN ('submitted','under_review','shortlisted','interview_scheduled','successful','unsuccessful')),
+  consent BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_apps_user ON applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_apps_job ON applications(job_id);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id SERIAL PRIMARY KEY,
+  application_id INT REFERENCES applications(id) ON DELETE CASCADE,
+  type VARCHAR(30) NOT NULL CHECK (type IN ('cv','certificate')),
+  original_name TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  mime_type VARCHAR(100),
+  uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id SERIAL PRIMARY KEY,
+  reference VARCHAR(50) UNIQUE NOT NULL,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  amount NUMERIC(10,2) NOT NULL,
+  currency VARCHAR(5) DEFAULT 'KES',
+  method VARCHAR(20) NOT NULL CHECK (method IN ('mpesa','paystack','flutterwave')),
+  phone VARCHAR(20),
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','success','failed')),
+  provider_ref VARCHAR(100),
+  raw_callback JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_tx_status ON transactions(status);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  subject VARCHAR(200),
+  body TEXT,
+  sent_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id SERIAL PRIMARY KEY,
+  actor_id INT REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(100),
+  target TEXT,
+  meta JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+└── public/
+    ├── index.html
+  <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickMart Careers – Build Your Career With Us</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="nav">
+    <a href="/" class="logo"><i class="fas fa-basket-shopping"></i> QuickMart <span>Careers</span></a>
+    <nav>
+      <a href="#jobs">Available Jobs</a>
+      <a href="#process">Process</a>
+      <a href="/admin.html">Admin</a>
+      <a href="#" id="loginBtn" class="btn-ghost">Login</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1>Build Your Career With Us</h1>
+    <p>Join a team that redefines convenience retail across Kenya.</p>
+    <div class="search-bar">
+      <input id="q" placeholder="Search job title…">
+      <button onclick="searchJobs()"><i class="fas fa-search"></i> Search</button>
+    </div>
+  </section>
+
+  <section id="jobs" class="container">
+    <h2>Featured Opportunities</h2>
+    <p class="notice">⚠️ <strong>Sample listings</strong> — pending verification by an authorized administrator.</p>
+    <div id="jobsGrid" class="jobs-grid"></div>
+  </section>
+
+  <section id="process" class="container">
+    <h2>How to Apply</h2>
+    <ol class="process-list">
+      <li><b>Create an account</b> and complete your profile.</li>
+      <li><b>Browse jobs</b> and pick a role that fits you.</li>
+      <li><b>Submit your application</b> with CV and certificates.</li>
+      <li><b>Track your status</b> from your dashboard.</li>
+    </ol>
+  </section>
+
+  <footer class="footer">
+    <p>© 2025 QuickMart Careers • <a href="#contact">Contact</a> • <a href="#privacy">Privacy</a></p>
+  </footer>
+
+  <div id="toast" class="toast"></div>
+  <script src="/js/main.js"></script>
+</body>
+</html>
+    ├── admin.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QuickMart Careers – Build Your Career With Us</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-<link rel="stylesheet" href="/css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickMart Careers – Admin</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-<header class="nav">
-  <a href="/" class="logo"><i class="fas fa-basket-shopping"></i> QuickMart <span>Careers</span></a>
-  <nav>
-    <a href="#jobs">Available Jobs</a>
-    <a href="#process">Process</a>
-    <a href="/admin.html">Admin</a>
-    <a href="#" id="loginBtn" class="btn-ghost">Login</a>
-  </nav>
-</header>
+  <header class="nav">
+    <a href="/" class="logo"><i class="fas fa-basket-shopping"></i> QuickMart <span>Admin</span></a>
+    <nav>
+      <a href="/">Home</a>
+      <a href="#" id="logoutBtn" class="btn-ghost">Logout</a>
+    </nav>
+  </header>
 
-<section class="hero">
-  <h1>Build Your Career With Us</h1>
-  <p>Join a team that redefines convenience retail across Kenya.</p>
-  <div class="search-bar">
-    <input id="q" placeholder="Search job title…">
-    <button onclick="searchJobs()"><i class="fas fa-search"></i> Search</button>
-  </div>
-</section>
+  <main class="container">
+    <h1>Admin Dashboard</h1>
+    <div id="stats" class="stats-grid"></div>
 
-<section id="jobs" class="container">
-  <h2>Featured Opportunities</h2>
-  <p class="notice">⚠️ <strong>Sample listings</strong> — pending verification by an authorized administrator.</p>
-  <div id="jobsGrid" class="jobs-grid"></div>
-</section>
+    <h2>Applications</h2>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Reference</th><th>Applicant</th><th>Email</th>
+            <th>Job</th><th>Status</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="appsBody"></tbody>
+      </table>
+    </div>
 
-<footer class="footer">
-  <p>© 2025 QuickMart Careers • <a href="#contact">Contact</a> • <a href="#privacy">Privacy</a></p>
-</footer>
+    <h2>Transactions</h2>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Reference</th><th>Amount</th><th>Method</th>
+            <th>Phone</th><th>Status</th><th>Created</th>
+          </tr>
+        </thead>
+        <tbody id="txBody"></tbody>
+      </table>
+    </div>
+  </main>
 
-<div id="toast" class="toast"></div>
-<script src="/js/main.js"></script>
+  <div id="toast" class="toast"></div>
+  <script src="/js/admin.js"></script>
 </body>
 </html>
+    ├── css/style.css
+:root {
+  --green: #0b5e2e;
+  --green-l: #1e7b44;
+  --soft: #e6f2e9;
+  --accent: #f8b84a;
+  --dark: #1a1e24;
+  --grey: #f8fafc;
+  --text: #4b5563;
+  --radius: 16px;
+  --shadow: 0 8px 20px rgba(0,0,0,.05);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: Inter, system-ui, sans-serif; }
+body { background: var(--grey); color: var(--dark); line-height: 1.5; }
+
+.nav {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1rem 2rem; background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.03);
+  position: sticky; top: 0; z-index: 50;
+}
+.logo { font-weight: 700; color: var(--green); text-decoration: none; font-size: 1.4rem; }
+.logo span { color: var(--dark); }
+.nav nav a { margin-left: 1.2rem; color: var(--dark); text-decoration: none; font-weight: 500; }
+.nav nav a:hover { color: var(--green); }
+.btn-ghost { background: var(--soft); color: var(--green); padding: .5rem 1rem; border-radius: 50px; }
+
+.hero {
+  text-align: center; padding: 5rem 1rem 3rem;
+  background: linear-gradient(180deg, #fff, var(--soft));
+}
+.hero h1 { font-size: clamp(2rem, 5vw, 3.2rem); color: var(--green); letter-spacing: -.03em; }
+.hero p { color: var(--text); margin: .75rem 0 1.5rem; }
+.search-bar {
+  display: flex; max-width: 520px; margin: 0 auto; background: #fff;
+  border-radius: 60px; padding: .4rem; box-shadow: var(--shadow);
+}
+.search-bar input { flex: 1; border: 0; padding: .8rem 1rem; border-radius: 60px; outline: none; }
+.search-bar button {
+  background: var(--green); color: #fff; border: 0;
+  padding: .8rem 1.4rem; border-radius: 60px; cursor: pointer;
+}
+
+.container { max-width: 1200px; margin: auto; padding: 3rem 1.5rem; }
+.container h2 { color: var(--green); margin-bottom: 1rem; }
+
+.notice {
+  background: #fff8e7; border-left: 4px solid var(--accent);
+  padding: .75rem 1rem; border-radius: 8px; margin: 1rem 0; font-size: .9rem;
+}
+
+.jobs-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem; margin-top: 1.5rem;
+}
+.job-card {
+  background: #fff; border-radius: var(--radius); padding: 1.5rem;
+  box-shadow: var(--shadow); transition: .2s;
+  display: flex; flex-direction: column;
+}
+.job-card:hover { transform: translateY(-4px); box-shadow: 0 20px 35px -8px rgba(0,0,0,.1); }
+.job-head {
+  display: flex; justify-content: space-between; font-size: .75rem;
+  text-transform: uppercase; letter-spacing: .05em;
+  color: var(--green); margin-bottom: .6rem;
+}
+.dept { background: var(--soft); padding: .2rem .6rem; border-radius: 20px; }
+.type { color: var(--text); }
+.job-card h3 { font-size: 1.2rem; margin-bottom: .4rem; }
+.meta { font-size: .85rem; color: var(--text); margin-bottom: .75rem; }
+.meta i { color: var(--green-l); margin-right: .25rem; }
+.desc { font-size: .9rem; color: var(--text); flex: 1; margin-bottom: 1rem; }
+.job-foot { display: flex; justify-content: space-between; align-items: center; }
+.vac { font-size: .8rem; color: var(--text); }
+.btn-apply {
+  background: var(--green); color: #fff; border: 0;
+  padding: .6rem 1.1rem; border-radius: 50px; cursor: pointer;
+  font-weight: 600; transition: .2s;
+}
+.btn-apply:hover { background: var(--green-l); }
+
+.process-list { padding-left: 1.25rem; color: var(--text); line-height: 2; }
+
+.toast {
+  position: fixed; bottom: 2rem; left: 50%;
+  transform: translateX(-50%) translateY(30px);
+  background: var(--dark); color: #fff;
+  padding: 1rem 1.6rem; border-radius: 60px;
+  opacity: 0; transition: .3s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.footer {
+  text-align: center; padding: 2rem; color: var(--text);
+  font-size: .85rem; border-top: 1px solid #e5e7eb; margin-top: 3rem;
+}
+.footer a { color: var(--green); }
+
+.stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem; margin: 1.5rem 0 2rem;
+}
+.stat-card {
+  background: #fff; padding: 1.25rem; border-radius: var(--radius);
+  box-shadow: var(--shadow); text-align: center;
+}
+.stat-card .num { font-size: 1.8rem; font-weight: 700; color: var(--green); }
+.stat-card .label { font-size: .85rem; color: var(--text); }
+
+.table-wrap { overflow-x: auto; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 2rem; }
+.data-table { width: 100%; border-collapse: collapse; min-width: 640px; }
+.data-table th, .data-table td { padding: .75rem 1rem; text-align: left; font-size: .9rem; }
+.data-table th { background: var(--soft); color: var(--green); font-weight: 600; }
+.data-table tr:not(:last-child) td { border-bottom: 1px solid #eef2f6; }
+.data-table select { padding: .35rem; border-radius: 8px; border: 1px solid #d1d5db; }
+
+@media (max-width: 640px) {
+  .nav { padding: .8rem 1rem; }
+  .nav nav a { margin-left: .6rem; font-size: .85rem; }
+  .container { padding: 2rem 1rem; }
+}
+    ├── js/main.js
 const API = '/api';
 
 async function loadJobs(params = {}) {
@@ -650,10 +939,13 @@ function renderJobs(jobs) {
         <span class="type">${j.employment_type}</span>
       </div>
       <h3>${j.title}</h3>
-      <p class="meta"><i class="fas fa-location-dot"></i> ${j.location} • <i class="fas fa-money-bill"></i> ${j.salary_range || 'Negotiable'}</p>
-      <p class="desc">${j.description.slice(0, 120)}…</p>
+      <p class="meta">
+        <i class="fas fa-location-dot"></i> ${j.location} •
+        <i class="fas fa-money-bill"></i> ${j.salary_range || 'Negotiable'}
+      </p>
+      <p class="desc">${(j.description || '').slice(0, 120)}…</p>
       <div class="job-foot">
-        <span class="vac">${j.vacancies} vacanc${j.vacancies>1?'ies':'y'}</span>
+        <span class="vac">${j.vacancies} vacanc${j.vacancies > 1 ? 'ies' : 'y'}</span>
         <button onclick="applyFor(${j.id})" class="btn-apply">Apply Now <i class="fas fa-arrow-right"></i></button>
       </div>
     </div>
@@ -665,136 +957,164 @@ function searchJobs() {
   loadJobs(q ? { search: q } : {});
 }
 
-// Apply — free per spec §6 ("free of mandatory applicant payments")
 async function applyFor(jobId) {
-  const token = await ensureAuth();
-  if (!token) return;
+  const authed = await ensureAuth();
+  if (!authed) return;
 
-  const form = new FormData();
-  form.append('job_id', jobId);
-  form.append('education_level', prompt('Highest education level?') || 'N/A');
-  form.append('work_experience', prompt('Years of experience?') || '0');
-  form.append('consent', 'true');
-  const cv = document.getElementById('cvInput')?.files?.[0];
-  if (!cv) return toast('Please attach a CV (PDF/DOCX).');
-  form.append('cv', cv);
+  // create a hidden file input to grab the CV
+  const cvInput = document.createElement('input');
+  cvInput.type = 'file';
+  cvInput.accept = '.pdf,.doc,.docx';
+  cvInput.style.display = 'none';
+  document.body.appendChild(cvInput);
 
-  const res = await fetch(`${API}/applications`, { method: 'POST', body: form });
-  const data = await res.json();
-  if (res.ok) toast(`✅ Applied! Reference: ${data.reference}`);
-  else toast(`❌ ${data.error || 'Failed'}`);
+  cvInput.addEventListener('change', async () => {
+    if (!cvInput.files.length) { toast('Please attach a CV (PDF/DOCX).'); return; }
+    const form = new FormData();
+    form.append('job_id', jobId);
+    form.append('education_level', prompt('Highest education level?') || 'N/A');
+    form.append('work_experience', prompt('Years of experience?') || '0');
+    form.append('consent', 'true');
+    form.append('cv', cvInput.files[0]);
+
+    const res = await fetch(`${API}/applications`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (res.ok) toast(`✅ Applied! Reference: ${data.reference}`);
+    else toast(`❌ ${data.error || 'Failed'}`);
+    document.body.removeChild(cvInput);
+  });
+
+  cvInput.click();
 }
 
-// Auth helper (minimal — wire to modal for production)
 async function ensureAuth() {
-  const me = await fetch(`${API}/auth/me`).then(r => r.json());
+  const me = await fetch(`${API}/auth/me`).then(r => r.json()).catch(() => ({}));
   if (me.user) return true;
+
   const email = prompt('Email?');
+  if (!email) return false;
   const password = prompt('Password?');
-  const fullName = prompt('Full name (new users)?');
-  const res = await fetch(`${API}/auth/${fullName ? 'register' : 'login'}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, fullName }),
+  if (!password) return false;
+  const fullName = prompt('Full name (leave blank if returning user)?');
+
+  const endpoint = fullName ? '/auth/register' : '/auth/login';
+  const body = fullName
+    ? { fullName, email, password }
+    : { email, password };
+
+  const res = await fetch(`${API}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   if (res.ok) return true;
-  toast('Auth failed'); return false;
+  toast('Auth failed');
+  return false;
 }
 
 function toast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
+  t.textContent = msg;
+  t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
 loadJobs();
-:root{--green:#0b5e2e;--green-l:#1e7b44;--soft:#e6f2e9;--accent:#f8b84a;
---dark:#1a1e24;--grey:#f8fafc;--text:#4b5563;--radius:16px;--shadow:0 8px 20px rgba(0,0,0,.05)}
-*{margin:0;padding:0;box-sizing:border-box;font-family:Inter,system-ui,sans-serif}
-body{background:var(--grey);color:var(--dark);line-height:1.5}
-.nav{display:flex;justify-content:space-between;align-items:center;padding:1rem 2rem;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.03);position:sticky;top:0;z-index:50}
-.logo{font-weight:700;color:var(--green);text-decoration:none;font-size:1.4rem}
-.logo span{color:var(--dark)}
-.nav nav a{margin-left:1.2rem;color:var(--dark);text-decoration:none;font-weight:500}
-.nav nav a:hover{color:var(--green)}
-.btn-ghost{background:var(--soft);color:var(--green);padding:.5rem 1rem;border-radius:50px}
-.hero{text-align:center;padding:5rem 1rem 3rem;background:linear-gradient(180deg,#fff,var(--soft))}
-.hero h1{font-size:clamp(2rem,5vw,3.2rem);color:var(--green);letter-spacing:-.03em}
-.hero p{color:var(--text);margin:.75rem 0 1.5rem}
-.search-bar{display:flex;max-width:520px;margin:0 auto;background:#fff;border-radius:60px;padding:.4rem;box-shadow:var(--shadow)}
-.search-bar input{flex:1;border:0;padding:.8rem 1rem;border-radius:60px;outline:none}
-.search-bar button{background:var(--green);color:#fff;border:0;padding:.8rem 1.4rem;border-radius:60px;cursor:pointer}
-.container{max-width:1200px;margin:auto;padding:3rem 1.5rem}
-.notice{background:#fff8e7;border-left:4px solid var(--accent);padding:.75rem 1rem;border-radius:8px;margin:1rem 0;font-size:.9rem}
-.jobs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;margin-top:1.5rem}
-.job-card{background:#fff;border-radius:var(--radius);padding:1.5rem;box-shadow:var(--shadow);transition:.2s;display:flex;flex-direction:column}
-.job-card:hover{transform:translateY(-4px);box-shadow:0 20px 35px -8px rgba(0,0,0,.1)}
-.job-head{display:flex;justify-content:space-between;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin-bottom:.6rem}
-.dept{background:var(--soft);padding:.2rem .6rem;border-radius:20px}
-.type{color:var(--text)}
-.job-card h3{font-size:1.2rem;margin-bottom:.4rem}
-.meta{font-size:.85rem;color:var(--text);margin-bottom:.75rem}
-.meta i{color:var(--green-l);margin-right:.25rem}
-.desc{font-size:.9rem;color:var(--text);flex:1;margin-bottom:1rem}
-.job-foot{display:flex;justify-content:space-between;align-items:center}
-.vac{font-size:.8rem;color:var(--text)}
-.btn-apply{background:var(--green);color:#fff;border:0;padding:.6rem 1.1rem;border-radius:50px;cursor:pointer;font-weight:600;transition:.2s}
-.btn-apply:hover{background:var(--green-l)}
-.toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%) translateY(30px);
-background:var(--dark);color:#fff;padding:1rem 1.6rem;border-radius:60px;opacity:0;transition:.3s;pointer-events:none}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.footer{text-align:center;padding:2rem;color:var(--text);font-size:.85rem;border-top:1px solid #e5e7eb;margin-top:3rem}
-.footer a{color:var(--green)}
-@media(max-width:640px){.nav{padding:.8rem 1rem}.nav nav a{margin-left:.6rem;font-size:.85rem}.container{padding:2rem 1rem}}
-require('dotenv').config();
-const bcrypt = require('bcryptjs');
-const { pool } = require('../config/db');
+    └── js/admin.js
+    const API = '/api';
+
+async function ensureAdmin() {
+  const me = await fetch(`${API}/auth/me`).then(r => r.json()).catch(() => ({}));
+  if (!me.user || me.user.role !== 'admin') {
+    const email = prompt('Admin email?');
+    const password = prompt('Password?');
+    if (!email || !password) return false;
+    const res = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) { toast('Login failed'); return false; }
+    const data = await res.json();
+    if (data.user.role !== 'admin') { toast('Not an admin'); return false; }
+  }
+  return true;
+}
+
+async function loadStats() {
+  const s = await fetch(`${API}/admin/stats`).then(r => r.json());
+  document.getElementById('stats').innerHTML = `
+    ${card(s.users, 'Users')}
+    ${card(s.jobs, 'Open Jobs')}
+    ${card(s.apps, 'Applications')}
+    ${card(s.review, 'Under Review')}
+    ${card(s.shortlisted, 'Shortlisted')}
+    ${card(s.success, 'Successful')}
+    ${card(s.tx, 'Paid Txns')}
+  `;
+}
+
+function card(num, label) {
+  return `<div class="stat-card"><div class="num">${num}</div><div class="label">${label}</div></div>`;
+}
+
+async function loadApplications() {
+  const apps = await fetch(`${API}/admin/applications`).then(r => r.json());
+  const statuses = ['submitted','under_review','shortlisted','interview_scheduled','successful','unsuccessful'];
+  document.getElementById('appsBody').innerHTML = apps.map(a => `
+    <tr>
+      <td>${a.reference}</td>
+      <td>${a.full_name}</td>
+      <td>${a.email}</td>
+      <td>${a.job_title}</td>
+      <td>
+        <select onchange="updateStatus(${a.id}, this.value)">
+          ${statuses.map(s => `<option value="${s}" ${s === a.status ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </td>
+      <td>${new Date(a.created_at).toLocaleDateString()}</td>
+    </tr>
+  `).join('');
+}
+
+async function updateStatus(id, status) {
+  const res = await fetch(`${API}/admin/applications/${id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (res.ok) toast('Status updated');
+  else toast('Update failed');
+}
+
+async function loadTransactions() {
+  const tx = await fetch(`${API}/admin/transactions`).then(r => r.json());
+  document.getElementById('txBody').innerHTML = tx.map(t => `
+    <tr>
+      <td>${t.reference}</td>
+      <td>${t.amount} ${t.currency}</td>
+      <td>${t.method}</td>
+      <td>${t.phone || '—'}</td>
+      <td>${t.status}</td>
+      <td>${new Date(t.created_at).toLocaleString()}</td>
+    </tr>
+  `).join('');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+document.getElementById('logoutBtn').addEventListener('click', async (e) => {
+  e.preventDefault();
+  await fetch(`${API}/auth/logout`, { method: 'POST' });
+  location.href = '/';
+});
 
 (async () => {
-  const hash = await bcrypt.hash('Admin@1234', 12);
-  await pool.query(
-    `INSERT INTO users (full_name,email,password_hash,role,email_verified)
-     VALUES ($1,$2,$3,'admin',TRUE)
-     ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash`,
-    ['System Administrator', 'admin@quickmart.local', hash]
-  );
-  await pool.query(
-    `INSERT INTO jobs (title,department,location,employment_type,salary_range,description,
-       qualifications,experience_required,vacancies,status,is_sample)
-     VALUES
-     ('Cashier','Retail','Nairobi','Full-time','KES 30,000 – 40,000',
-      'Process customer transactions, handle cash, and deliver excellent service.',
-      'KCSE C+ and above','1–2 years',5,'open',true),
-     ('Store Supervisor','Operations','Mombasa','Full-time','KES 55,000 – 70,000',
-      'Oversee daily store operations and lead a team of attendants.',
-      'Diploma in Business','3+ years',2,'open',true),
-     ('Warehouse Assistant','Logistics','Kisumu','Full-time','KES 25,000 – 32,000',
-      'Manage stock movement, receiving, and dispatch.',
-      'KCSE D+','Entry level',8,'open',true),
-     ('Customer Service Rep','Customer Care','Nairobi','Part-time','KES 20,000 – 28,000',
-      'Handle customer inquiries and feedback across channels.',
-      'KCSE C','0–1 year',4,'open',true)
-     ON CONFLICT DO NOTHING`
-  );
-  console.log('✅ Seeded admin (admin@quickmart.local / Admin@1234) + sample jobs');
-  await pool.end();
+  if (!(await ensureAdmin())) return;
+  await Promise.all([loadStats(), loadApplications(), loadTransactions()]);
 })();
-# 1. install
-npm install
-
-# 2. create DB
-createdb quickmart_careers
-psql -d quickmart_careers -f db/schema.sql
-
-# 3. seed
-node scripts/seed.js
-
-# 4. env
-cp .env.example .env
-# edit .env with your DATABASE_URL, SESSION_SECRET, MPESA keys
-
-# 5. run
-npm run dev          # http://localhost:3000
-
-# 6. expose for M-Pesa callback (dev)
-ngrok http 3000
-# put the https URL + /api/payments/mpesa/callback into MPESA_CALLBACK_URL
